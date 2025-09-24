@@ -1,0 +1,406 @@
+' ===============================================
+' DAILY UTILITY KIT — VBScript
+' A compact, "insanely cool" multi-tool for everyday tasks.
+' Drop into a .vbs file and run (double-click).
+' ===============================================
+Option Explicit
+Dim shell, fso, wmi, voice
+Set shell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+Set wmi = GetObject("winmgmts:\\.\root\cimv2")
+On Error Resume Next
+Set voice = CreateObject("SAPI.SpVoice")
+On Error GoTo 0
+
+' -------------------------
+' User paths & constants
+' -------------------------
+Dim userProfile, desktopFolder, docsFolder, downloadsFolder, tempFolder
+userProfile = shell.ExpandEnvironmentStrings("%USERPROFILE%")
+desktopFolder = userProfile & "\Desktop"
+docsFolder = shell.ExpandEnvironmentStrings("%USERPROFILE%\Documents")
+downloadsFolder = shell.ExpandEnvironmentStrings("%USERPROFILE%\Downloads")
+tempFolder = shell.ExpandEnvironmentStrings("%TEMP%")
+
+' -------------------------
+' Start animation + greeting (short, cool)
+' -------------------------
+Call Splash()
+
+' Main loop
+Do
+    Dim choice
+    choice = MainMenu()
+    If choice = "" Then Exit Do
+    Select Case LCase(Trim(choice))
+        Case "1", "note", "notes"
+            Call QuickNote()
+        Case "2", "timer"
+            Call CountdownTimer()
+        Case "3", "calc", "calculator"
+            Call QuickCalc()
+        Case "4", "clean", "temp"
+            Call CleanTemp()
+        Case "5", "organize", "downloads"
+            Call OrganizeDownloads()
+        Case "6", "large", "find"
+            Call FindLargeFiles()
+        Case "7", "snapshot", "sys"
+            Call SystemSnapshot()
+        Case "8", "voice", "tts"
+            Call SpeakNow()
+        Case "9", "exit", "quit"
+            Exit Do
+        Case Else
+            MsgBox "Unknown selection. Try again.", 48, "Daily Utility Kit"
+    End Select
+Loop
+
+Call Farewell()
+WScript.Quit(0)
+
+' ============================
+' Functions & Subroutines
+' ============================
+
+Sub Splash()
+    Dim i, frames
+    frames = Array( _
+        "?¯¯¯¯¯?  DAILY  ?¯¯¯¯¯?", _
+        "?_____?  UTILITY ?_____?", _
+        "  Loading • • •    Ready" _
+    )
+    For i = 0 To 2
+        shell.Popup frames(i), 0.6, "Daily Utility Kit", 64
+    Next
+    If Not voice Is Nothing Then
+        voice.Speak "Daily Utility Kit initialized"
+    End If
+End Sub
+
+Function MainMenu()
+    Dim menu
+    menu = "=== DAILY UTILITY KIT ===" & vbCrLf & vbCrLf
+    menu = menu & "1) Quick Note (append daily notes)" & vbCrLf
+    menu = menu & "2) Countdown Timer" & vbCrLf
+    menu = menu & "3) Quick Calculator" & vbCrLf
+    menu = menu & "4) Clean Temp Files (safe)" & vbCrLf
+    menu = menu & "5) Organize Downloads (by extension)" & vbCrLf
+    menu = menu & "6) Find Large Files (report)" & vbCrLf
+    menu = menu & "7) System Snapshot (save report)" & vbCrLf
+    menu = menu & "8) Speak (text-to-speech)" & vbCrLf
+    menu = menu & "9) Exit" & vbCrLf & vbCrLf
+    menu = menu & "Enter number or name:"
+    MainMenu = InputBox(menu, "Daily Utility Kit")
+End Function
+
+' ----------------------------
+' 1) Quick Note — appends with timestamp
+' ----------------------------
+Sub QuickNote()
+    Dim notesDir, dailyFile, text, ts
+    notesDir = docsFolder & "\DailyNotes"
+    If Not fso.FolderExists(notesDir) Then fso.CreateFolder(notesDir)
+    ts = Year(Now) & "-" & Right("0" & Month(Now),2) & "-" & Right("0" & Day(Now),2)
+    dailyFile = notesDir & "\" & ts & ".txt"
+    text = InputBox("Write your quick note (single-line). It will be appended to the daily file.", "Quick Note")
+    If Trim(text) = "" Then
+        MsgBox "No note written.", 48, "Quick Note"
+        Exit Sub
+    End If
+    AppendText dailyFile, Now & " - " & text & vbCrLf
+    MsgBox "Saved to: " & dailyFile, 64, "Quick Note"
+    If Not voice Is Nothing Then voice.Speak "Note saved"
+End Sub
+
+Sub AppendText(path, content)
+    Dim ts
+    Set ts = fso.OpenTextFile(path, 8, True)
+    ts.Write content
+    ts.Close
+End Sub
+
+' ----------------------------
+' 2) Countdown Timer w/ TTS + visual pulse
+' ----------------------------
+Sub CountdownTimer()
+    Dim input, seconds, i, title, pulse
+    input = InputBox("Enter seconds for countdown (e.g. 10). You can enter minutes as 1m (optional).", "Countdown Timer")
+    If Trim(input) = "" Then Exit Sub
+    seconds = ParseTimeInput(input)
+    If seconds <= 0 Then
+        MsgBox "Couldn't parse the time.", 48, "Timer"
+        Exit Sub
+    End If
+    title = "Timer: " & seconds & "s"
+    For i = seconds To 1 Step -1
+        pulse = "? " & i & "s remaining"
+        shell.Popup pulse, 1, title, 64
+        ' Every 10 seconds give a small voice countdown
+        If Not voice Is Nothing Then
+            If i <= 5 Or (i Mod 10 = 0) Then voice.Speak CStr(i)
+        End If
+    Next
+    ' Final alert
+    For i = 1 To 3
+        shell.Popup "TIME'S UP!", 0.7, "? Timer", 48
+    Next
+    If Not voice Is Nothing Then voice.Speak "Time is up"
+End Sub
+
+Function ParseTimeInput(s)
+    s = LCase(Trim(s))
+    If InStr(s, "m") > 0 Then
+        s = Replace(s, "m", "")
+        If IsNumeric(s) Then ParseTimeInput = CLng(s) * 60 Else ParseTimeInput = 0
+    ElseIf IsNumeric(s) Then
+        ParseTimeInput = CLng(s)
+    Else
+        ParseTimeInput = 0
+    End If
+End Function
+
+' ----------------------------
+' 3) Quick Calculator (uses Eval)
+' ----------------------------
+Sub QuickCalc()
+    Dim expr, result
+    expr = InputBox("Enter a math expression (e.g. (12+8)/4 * 3 - 2^2 ). VBScript supports + - * / ^ and parentheses.", "Quick Calculator")
+    If Trim(expr) = "" Then Exit Sub
+    On Error Resume Next
+    result = Eval(expr)
+    If Err.Number <> 0 Then
+        MsgBox "Invalid expression or evaluation error.", 48, "Calculator"
+        Err.Clear
+    Else
+        MsgBox expr & " = " & CStr(result), 64, "Calculator"
+    End If
+    On Error GoTo 0
+End Sub
+
+' ----------------------------
+' 4) Clean Temp Files (safe: older than X days)
+' ----------------------------
+Sub CleanTemp()
+    Dim daysStr, days, colFiles, blk, removed, file
+    daysStr = InputBox("Delete temp files older than how many days? (suggest 7)", "Clean Temp Files", "7")
+    If Trim(daysStr) = "" Then Exit Sub
+    If Not IsNumeric(daysStr) Then
+        MsgBox "Please enter a number.", 48, "Clean Temp Files"
+        Exit Sub
+    End If
+    days = CLng(daysStr)
+    removed = 0
+    Set colFiles = fso.GetFolder(tempFolder).Files
+    For Each file In colFiles
+        On Error Resume Next
+        If DateDiff("d", file.DateLastModified, Now) >= days Then
+            file.Delete True
+            If Err.Number = 0 Then removed = removed + 1
+            Err.Clear
+        End If
+        On Error GoTo 0
+    Next
+    MsgBox "Deleted " & removed & " temp files older than " & days & " days.", 64, "Clean Temp"
+    If Not voice Is Nothing Then voice.Speak removed & " temporary files removed"
+End Sub
+
+' ----------------------------
+' 5) Organize Downloads (moves files into folders by extension)
+' ----------------------------
+Sub OrganizeDownloads()
+    Dim resp, daysStr, days, fldr, files, file, ext, targetDir, moved
+    If Not fso.FolderExists(downloadsFolder) Then
+        MsgBox "Downloads folder not found: " & downloadsFolder, 48, "Organize Downloads"
+        Exit Sub
+    End If
+    resp = MsgBox("This will organize files in your Downloads folder into subfolders by extension." & vbCrLf & "Proceed?", vbYesNo + 48, "Organize Downloads")
+    If resp <> vbYes Then Exit Sub
+    moved = 0
+    Set files = fso.GetFolder(downloadsFolder).Files
+    For Each file In files
+        ext = LCase(fso.GetExtensionName(file.Name))
+        If ext = "" Then ext = "no_extension"
+        targetDir = downloadsFolder & "\" & ext
+        If Not fso.FolderExists(targetDir) Then fso.CreateFolder(targetDir)
+        On Error Resume Next
+        fso.MoveFile file.Path, targetDir & "\" & file.Name
+        If Err.Number = 0 Then moved = moved + 1
+        Err.Clear
+        On Error GoTo 0
+    Next
+    MsgBox "Moved " & moved & " files into folders by extension.", 64, "Organize Downloads"
+    If Not voice Is Nothing Then voice.Speak "Downloads organized"
+End Sub
+
+' ----------------------------
+' 6) Find Large Files — generates report on desktop
+' ----------------------------
+Sub FindLargeFiles()
+    Dim folderPath, topNStr, topN, reportPath
+    folderPath = InputBox("Enter folder to scan (leave blank for Downloads):", "Find Large Files", downloadsFolder)
+    If Trim(folderPath) = "" Then folderPath = downloadsFolder
+    If Not fso.FolderExists(folderPath) Then
+        MsgBox "Folder not found: " & folderPath, 48, "Find Large Files"
+        Exit Sub
+    End If
+    topNStr = InputBox("How many top largest files to list?", "Find Large Files", "20")
+    If Not IsNumeric(topNStr) Then topN = 20 Else topN = CLng(topNStr)
+    reportPath = desktopFolder & "\LargeFilesReport_" & FormatFileName(Now) & ".txt"
+    Dim list
+    Set list = CreateObject("Scripting.Dictionary")
+    Call RecurseFiles(fso.GetFolder(folderPath), list)
+    ' sort dictionary by size descending
+    Dim arr(), key, i, j
+    ReDim arr(0)
+    i = 0
+    For Each key In list.Keys
+        ReDim Preserve arr(i)
+        arr(i) = key & "|" & CStr(list(key))
+        i = i + 1
+    Next
+    ' simple bubble/selection sort (size part)
+    Dim swapped, tmp
+    swapped = True
+    Do While swapped
+        swapped = False
+        For i = 0 To UBound(arr)-1
+            If CLng(Split(arr(i), "|")(1)) < CLng(Split(arr(i+1), "|")(1)) Then
+                tmp = arr(i)
+                arr(i) = arr(i+1)
+                arr(i+1) = tmp
+                swapped = True
+            End If
+        Next
+    Loop
+    ' write report
+    Dim out
+    Set out = fso.CreateTextFile(reportPath, True)
+    out.WriteLine "Large Files Report"
+    out.WriteLine "Folder: " & folderPath
+    out.WriteLine "Generated: " & Now
+    out.WriteLine String(60, "-")
+    For i = 0 To Min(UBound(arr), topN-1)
+        Dim parts, pth, sz
+        parts = Split(arr(i), "|")
+        pth = parts(0)
+        sz = CLng(parts(1))
+        out.WriteLine FormatFileSize(sz) & vbTab & pth
+    Next
+    out.Close
+    MsgBox "Report saved to: " & reportPath, 64, "Find Large Files"
+    If Not voice Is Nothing Then voice.Speak "Large files report ready"
+End Sub
+
+Sub RecurseFiles(folder, dict)
+    Dim f, sf
+    For Each f In folder.Files
+        dict.Add f.Path, f.Size
+    Next
+    For Each sf In folder.SubFolders
+        RecurseFiles sf, dict
+    Next
+End Sub
+
+Function FormatFileSize(bytes)
+    If bytes >= 1099511627776 Then
+        FormatFileSize = Round(bytes / 1099511627776, 2) & " TB"
+    ElseIf bytes >= 1073741824 Then
+        FormatFileSize = Round(bytes / 1073741824, 2) & " GB"
+    ElseIf bytes >= 1048576 Then
+        FormatFileSize = Round(bytes / 1048576, 2) & " MB"
+    ElseIf bytes >= 1024 Then
+        FormatFileSize = Round(bytes / 1024, 2) & " KB"
+    Else
+        FormatFileSize = bytes & " B"
+    End If
+End Function
+
+Function Min(a,b)
+    If a < b Then Min = a Else Min = b
+End Function
+
+Function FormatFileName(dt)
+    FormatFileName = Year(dt) & Right("0" & Month(dt),2) & Right("0" & Day(dt),2) & "_" & Right("0" & Hour(dt),2) & Right("0" & Minute(dt),2) & Right("0" & Second(dt),2)
+End Function
+
+' ----------------------------
+' 7) System Snapshot (WMI info saved to desktop)
+' ----------------------------
+Sub SystemSnapshot()
+    Dim outPath
+    outPath = desktopFolder & "\SystemSnapshot_" & FormatFileName(Now) & ".txt"
+    Dim t
+    Set t = fso.CreateTextFile(outPath, True)
+    t.WriteLine "System Snapshot"
+    t.WriteLine "Generated: " & Now
+    t.WriteLine String(60, "-")
+    ' basic OS info
+    Dim colOS, osItem
+    Set colOS = wmi.ExecQuery("Select * from Win32_OperatingSystem")
+    For Each osItem In colOS
+        t.WriteLine "OS: " & osItem.Caption & " (" & osItem.Version & ")"
+        t.WriteLine "Architecture: " & osItem.OSArchitecture
+        t.WriteLine "Registered User: " & osItem.RegisteredUser
+        t.WriteLine "Install Date: " & WMIDateToDate(osItem.InstallDate)
+    Next
+    ' CPU
+    Dim colCPU, cpu
+    Set colCPU = wmi.ExecQuery("Select * from Win32_Processor")
+    For Each cpu In colCPU
+        t.WriteLine "CPU: " & cpu.Name & " (" & cpu.NumberOfCores & " cores)"
+    Next
+    ' memory
+    Dim colMem, mem
+    Set colMem = wmi.ExecQuery("Select * from Win32_ComputerSystem")
+    For Each mem In colMem
+        t.WriteLine "Total Physical Memory: " & FormatFileSize(mem.TotalPhysicalMemory)
+    Next
+    ' IPs
+    t.WriteLine String(60, "-")
+    t.WriteLine "Network Adapters & IPs:"
+    Dim adapters, ad
+    Set adapters = wmi.ExecQuery("Select * from Win32_NetworkAdapterConfiguration where IPEnabled = True")
+    For Each ad In adapters
+        t.WriteLine " - " & ad.Description
+        If IsArray(ad.IPAddress) Then
+            Dim idx
+            For idx = LBound(ad.IPAddress) To UBound(ad.IPAddress)
+                t.WriteLine "    IP: " & ad.IPAddress(idx)
+            Next
+        End If
+    Next
+    t.Close
+    MsgBox "System snapshot saved to: " & outPath, 64, "System Snapshot"
+    If Not voice Is Nothing Then voice.Speak "System snapshot complete"
+End Sub
+
+Function WMIDateToDate(d)
+    On Error Resume Next
+    WMIDateToDate = CDate(Mid(d,5,2) & "/" & Mid(d,7,2) & "/" & Left(d,4) & " " & Mid(d,9,2) & ":" & Mid(d,11,2) & ":" & Mid(d,13,2))
+    On Error GoTo 0
+End Function
+
+' ----------------------------
+' 8) Speak Now (quick TTS)
+' ----------------------------
+Sub SpeakNow()
+    If voice Is Nothing Then
+        MsgBox "Text-to-speech not available on this system.", 48, "Speak"
+        Exit Sub
+    End If
+    Dim txt
+    txt = InputBox("Enter text to speak (or leave blank to hear a fun status):", "Speak")
+    If Trim(txt) = "" Then
+        txt = "All systems nominal. Stay productive."
+    End If
+    voice.Speak txt
+End Sub
+
+' ----------------------------
+' Farewell animation / save state prompt
+' ----------------------------
+Sub Farewell()
+    shell.Popup "Shutting down Daily Utility Kit...", 0.8, "Goodbye", 64
+    If Not voice Is Nothing Then voice.Speak "Goodbye and productive day"
+End Sub
